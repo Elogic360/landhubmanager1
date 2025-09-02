@@ -22,12 +22,23 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Tanzania Land Plot API...")
     try:
-        # Test database connection
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT version()"))
-            logger.info(f"Database connected: {result.fetchone()[0]}")
+        # Test database connection with retry logic
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT version()"))
+                    logger.info(f"Database connected: {result.fetchone()[0]}")
+                    break
+            except Exception as e:
+                logger.warning(f"Database connection attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(5)  # Wait 5 seconds before retry
+                else:
+                    logger.error("Failed to connect to database after all retries. Starting without DB.")
     except Exception as e:
-        logger.error(f"Database connection failed: {e}")
+        logger.error(f"Startup error: {e}")
     
     yield
     
@@ -56,7 +67,7 @@ order_service = OrderService()
 
 @app.get("/")
 async def root():
-    """Health check endpoint"""
+    """Root endpoint"""
     return {
         "message": "Tanzania Land Plot API",
         "version": "1.0.0",
@@ -64,7 +75,16 @@ async def root():
     }
 
 @app.get("/health")
-async def health_check(db: Session = Depends(get_db)):
+async def basic_health_check():
+    """Basic health check without database dependency"""
+    return {
+        "status": "healthy",
+        "service": "running",
+        "timestamp": "2025-01-01T00:00:00Z"
+    }
+
+@app.get("/health/db")
+async def detailed_health_check(db: Session = Depends(get_db)):
     """Detailed health check with database connectivity"""
     try:
         # Test database connection
@@ -96,6 +116,20 @@ async def get_all_plots(db: Session = Depends(get_db)):
         return plots_geojson
     except Exception as e:
         logger.error(f"Error fetching plots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch plots")
+
+@app.get("/api/plots/ordered")
+async def get_ordered_plots(db: Session = Depends(get_db)):
+    """Get all plots that have been ordered (with their order details)"""
+    try:
+        logger.info("GET /api/plots/ordered - Fetching ordered plots")
+        # Get all orders (which include plot details)
+        ordered_plots, total = order_service.get_orders(db, limit=1000)
+        logger.info(f"Returning {len(ordered_plots)} ordered plots")
+        return {"ordered_plots": ordered_plots}
+    except Exception as e:
+        logger.error(f"Error fetching ordered plots: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch ordered plots")
 
 @app.get("/api/plots/{plot_id}")
 async def get_plot(plot_id: str, db: Session = Depends(get_db)):

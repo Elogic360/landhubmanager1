@@ -20,17 +20,19 @@ DATABASE_URL = os.getenv(
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Create engine with connection pooling
+# Create engine with connection pooling and retry logic
 engine = create_engine(
     DATABASE_URL,
-    pool_size=20,
-    max_overflow=30,
+    pool_size=5,
+    max_overflow=10,
     pool_pre_ping=True,
-    pool_recycle=300,
+    pool_recycle=3600,
     echo=False,  # Set to True for SQL debugging
     connect_args={
         "options": "-c timezone=UTC",
-        "application_name": "tanzania_land_system"
+        "application_name": "tanzania_land_system",
+        "connect_timeout": 30,
+        "sslmode": "require"
     }
 )
 
